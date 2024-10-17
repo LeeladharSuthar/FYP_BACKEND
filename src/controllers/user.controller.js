@@ -6,6 +6,7 @@ import { deleteFromCloudnary, uploadOnCloudnary } from "../utils/cloudnary.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import jwt from "jsonwebtoken"
 import fs from "fs"
+import { MyCache } from "../app.js"
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -126,67 +127,6 @@ const logoutUser = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "User logged-out successfully"))
 })
 
-// const refreshAccessToken = asyncHandler(async (req, res) => {
-//     try {
-//         const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
-//         if (!incomingRefreshToken) {
-//             throw new ApiError(401, "unauthorized request")
-//         }
-
-//         const decodedToken = await jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET)
-//         // console.log(decodedToken)
-//         // { _id: '664060015d3954d757acb244', iat: 1715628735, exp: 1716492735 }
-//         const user = await User.findById(decodedToken._id).select("-password")
-//         // console.log(user)
-//         if (!user) {
-//             throw new ApiError(401, "Invalid refresh token!")
-//         }
-//         if (incomingRefreshToken !== user?.refreshToken) {
-//             throw new ApiError(401, "Invalid refresh token!")
-//         }
-//         const options = {
-//             httpOnly: true,
-//             secure: true
-//         }
-//         const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id)
-
-//         return res
-//             .status(200)
-//             .cookie("accessToken", accessToken, options)
-//             .cookie("refreshToken", refreshToken, options)
-//             .json(new ApiResponse(200, {
-//                 accessToken,
-//                 refreshToken
-//             }, "Access token refreshed"))
-//     } catch (error) {
-//         throw new ApiError(401, error.message || "Error while generating access token")
-//     }
-// })
-
-// const changeCurrentPassword = asyncHandler(async (req, res) => {
-//     // get old password and new password
-//     const { currentPassword, newPassword, confirmNewPassword } = req.body
-
-//     // verify new password and confirm password
-//     if (newPassword !== confirmNewPassword) {
-//         throw new ApiError(400, "New Password and confirm Password does't match")
-//     }
-
-//     // get data from db and verify old password
-//     const user = await User.findById(req.user?._id)
-//     const isPasswordCorrect = await user.isPasswordCorrect(currentPassword)
-//     if (!isPasswordCorrect) {
-//         throw new ApiError(400, "Invalid old password")
-//     }
-
-//     // set the new passowrd
-//     user.password = newPassword
-//     await user.save({ validateBeforeSave: false })
-
-//     // return confirm message
-//     return res.status(200).json(new ApiResponse(200, {}, "Password changed successfully"))
-// })
-
 const getCurrentUser = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, req.user, true, "Current user fetched successfully"))
 })
@@ -194,59 +134,51 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 const updateUser = asyncHandler(async (req, res) => {
     const { email, name } = req.body
 
-    const user = await User.findById(req.user?._id)
-    if (email === user.email && fullname === user.fullname) {
-        throw new ApiError(400, "No changes provided")
-    }
-
-    if (email)
-        user.email = email
-    if (fullname)
-        user.fullname = fullname
-    const status = await user.save({ validateBeforeSave: false })
-
-    const result = await User.findById(status._id).select("-password -refreshToken")
-
     return res.status(200).json(new ApiResponse(200, result, "Success"))
 })
 
-// const updateAvatar = asyncHandler(async (req, res) => {
-//     const avatarLocalPath = req.file?.path
-//     // console.log(req.file)
-//     // {
-//     //     fieldname: 'avatar',
-//     //     originalname: 'img.jpg',
-//     //     encoding: '7bit',
-//     //     mimetype: 'image/jpeg',
-//     //     destination: './public/temp',
-//     //     filename: 'avatar1715780458842.jpg',
-//     //     path: 'public\\temp\\avatar1715780458842.jpg',
-//     //     size: 308300
-//     // }
+const updatePassword = asyncHandler(async (req, res) => {
+    const { oldPassword, newPassword } = req.body
 
+    if (!oldPassword || !newPassword) {
+        throw new ApiError("Provide both old and new Passwords")
+    }
 
-//     if (!avatarLocalPath) {
-//         throw new ApiError(400, "Avatar file missing")
-//     }
-//     const avatar = await uploadOnCloudnary(avatarLocalPath)
-//     if (!avatar) {
-//         throw new ApiError(400, "Cloudnary Error")
-//     }
+    const user = await User.findById(req.user._id)
 
-//     const user = await User.findById(req.user._id)
-//     const oldUrl = user.avatar
+    const isCorrectOldPassword = await user.isPasswordCorrect(oldPassword)
 
-//     user.avatar = avatar.url
+    if (!isCorrectOldPassword) {
+        throw new ApiError("Incorrect Old Password")
+    }
 
-//     await user.save({ validateBeforeSave: false })
+    user.password = newPassword
+    await user.save()
+    return res.status(200).json(new ApiResponse(200, {}, true, "password updated successfully"))
+})
 
-//     const updatedUser = await User.findById(req.user._id).select("-password -refreshToken")
+const resetPassword = asyncHandler(async (req, res) => {
+    const { otp, newPassword } = req.body
+    const email = req.user.email
 
-//     await deleteFromCloudnary(oldUrl)
+    const sentOtp = MyCache.get(email)
+    if (sentOtp != otp) {
+        throw new ApiError("Incorrect Otp")
+    }
 
-//     return res.status(200).json(new ApiResponse(200, updatedUser, "Avatar updated successful"))
-// })
+    MyCache.del(email)
 
-// export { registerUser, loginUser, logoutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateUser, updateAvatar, updateCoverImage, getUserChannelProfile, watchHistory }
+    const user = await User.findById(req.user._id)
+    user.password = newPassword
+    await user.save()
 
-export { registerUser, loginUser, logoutUser, getCurrentUser }
+    return res.status(200).json(new ApiResponse(200, {}, true, "Reset Successful"))
+
+})
+
+const deleteProfile = asyncHandler(async (req, res) => {
+    await User.deleteOne({ email: req.user.email })
+    return res.status(200).json(new ApiResponse(200, {}, true, "User Deleted Successfully"))
+})
+
+export { registerUser, loginUser, logoutUser, getCurrentUser, updatePassword, deleteProfile, resetPassword }
