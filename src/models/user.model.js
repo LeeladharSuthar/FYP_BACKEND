@@ -17,12 +17,25 @@ const UserSchema = new mongoose.Schema({
         type: String
     },
     password: {
-        typr: String
+        required: true,
+        type: String
     },
     refreshToken: {
         type: String
     }
 })
+
+UserSchema.pre('save', async function (next) {
+   if (!this.isModified('password')) return next();
+    try {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
+
 
 UserSchema.methods.isPasswordCorrect = async function (password) {
     return await bcrypt.compare(password, this.password)
@@ -37,7 +50,7 @@ UserSchema.methods.generateAccessToken = async function () {
     },
         process.env.ACCESS_TOKEN_SECRET,
         {
-            expiresIn: process.env.ACCESS_TOKEN_EXPIRYn // 1d
+            expiresIn: process.env.ACCESS_TOKEN_EXPIRY // 1d
         }
     )
 }

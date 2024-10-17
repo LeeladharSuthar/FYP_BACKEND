@@ -1,16 +1,15 @@
-import { DB_CONNECT } from './db/index.js'
+import { DB_CONNECT } from './db/connectDb.js'
 import { app } from './app.js'
 import dotenv from 'dotenv'
+dotenv.config()
 
 const port = process.env.PORT || 3000
 
-dotenv.config()
 
 DB_CONNECT()
     .then((res) => {
         console.log(`Connection Successful: ${res.connections[0]._readyState == 1}`)
 
-        //  uncaught error occurs within the Express application or its middleware functions, this event listener will be triggered
         app.on("error", (error) => {
             console.log("EXPRESS ERROR: ", error)
         })
